@@ -6,7 +6,7 @@ colorTo: blue
 sdk: docker
 app_port: 7860
 pinned: false
-short_description: Decoupled Python FastAPI Cloud Bot for Aronium POS & Telegram Assistant
+short_description: FastAPI Cloud Bot Router for Smart Sembako POS
 ---
 
 # 🛒 Smart Sembako Cloud Bot (FastAPI + Supabase + Multi-Agent LLM)
