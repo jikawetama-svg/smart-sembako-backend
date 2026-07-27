@@ -13,6 +13,10 @@ from tools.restock_tools import (
 from model_manager.manager import ModelManager
 from telegram.rbac import RBACManager
 import memory.conversation_store as mem_store
+from memory.store_brain import StoreBrain
+from agents.planner import PlannerAgent
+from agents.supervisor import AgentSupervisor
+from agents.reflection import ReflectionAgent
 
 # ─────────────────────────────────────────────
 # Kamus nama bulan Bahasa Indonesia
@@ -129,11 +133,14 @@ def fmt_rp(val) -> str:
 # MASTER AGENT
 # ─────────────────────────────────────────────
 class MasterAgent:
-    def __init__(self, registry: Optional[ToolRegistry] = None,
-                 model_manager: Optional[ModelManager] = None):
-        self.registry = registry or ToolRegistry()
+    def __init__(self):
+        self.registry = ToolRegistry()
+        self.model_manager = ModelManager()
+        self.planner = PlannerAgent()
+        self.supervisor = AgentSupervisor(self.registry)
+        self.reflection = ReflectionAgent()
+        self.store_brain = StoreBrain()
         self._register_default_tools()
-        self.model_manager = model_manager or ModelManager()
 
     def _register_default_tools(self):
         # Inventory
@@ -254,138 +261,6 @@ class MasterAgent:
             return DESKTOP_ONLY_FEATURES["ocr"]
         if intent == "desktop_piutang_bayar":
             return DESKTOP_ONLY_FEATURES["piutang_bayar"]
-
-        # ── Cek stok produk ──────────────────────
-        if intent == "cek_stok":
-            product_query = extract_product_query(text)
-            tool_name = "get_stock" if product_query else "get_low_stock"
-            tool = self.registry.get_tool(tool_name)
-            if tool and RBACManager.can_access_tool(role, tool.name):
-                param_key = "product_name"
-                result = await tool.execute({param_key: product_query})
-                products = result.data.get("products", result.data.get("low_stock_products", []))
-                if products:
-                    label = product_query or "Semua Produk"
-                    lines = [f"📦 *Hasil Stok ({label}):*"]
-                    for p in products:
-                        stock_val = float(p.get("stock", 0) or 0)
-                        status = "🔴 Kritis" if p.get("is_low_stock") or stock_val <= 10 else "🟢 Aman"
-                        lines.append(
-                            f"• *{p.get('name')}*: {stock_val:g} {p.get('unit','pcs')} "
-                            f"({status}) — {fmt_rp(p.get('selling_price', 0))}"
-                        )
-                    return "\n".join(lines)
-                return f"ℹ️ Produk '{product_query or 'stok kritis'}' tidak ditemukan di catalog."
-
-        # ── Restock kritis / rekomendasi ─────────
-        if intent == "restock_rekomendasi":
-            tool = self.registry.get_tool("get_low_stock_alert")
-            if tool:
-                result = await tool.execute({})
-                products = result.data.get("low_stock_alerts", [])
-                if products:
-                    lines = ["⚠️ *Rekomendasi Restock — Produk Kritis:*"]
-                    for p in products:
-                        lines.append(f"• *{p.get('name')}*: sisa {p.get('stock')} {p.get('unit','pcs')}")
-                    lines.append("\n_Segera lakukan pembelian untuk menghindari kehabisan stok._")
-                    return "\n".join(lines)
-                return "✅ Semua stok produk masih dalam batas aman!"
-
-        # ── Cek expired ──────────────────────────
-        if intent == "cek_expired":
-            tool = self.registry.get_tool("get_expiring_products")
-            if tool and RBACManager.can_access_tool(role, tool.name):
-                result = await tool.execute({})
-                products = result.data.get("expiring_products", [])
-                if products:
-                    lines = ["⏳ *Produk Mendekati Expired:*"]
-                    for p in products:
-                        exp = p.get("expiry_date", "—")
-                        lines.append(f"• *{p.get('name')}*: {p.get('stock')} {p.get('unit','pcs')} | Exp: {exp}")
-                    return "\n".join(lines)
-                return "✅ Tidak ada produk yang mendekati tanggal expired."
-
-        # ── Riwayat restock ──────────────────────
-        if intent == "restock_history":
-            product_query = extract_product_query(
-                re.sub(r'riwayat\s+restock|history\s+restock|riwayat\s+beli', '', text, flags=re.I).strip()
-            )
-            tool = self.registry.get_tool("get_restock_history")
-            if tool and RBACManager.can_access_tool(role, tool.name):
-                result = await tool.execute({"product_name": product_query, "limit": 10})
-                rows = result.data.get("restock_history", [])
-                if rows:
-                    label = product_query or "Semua Produk"
-                    lines = [f"📋 *Riwayat Restock ({label}):*"]
-                    for r in rows:
-                        tanggal = r.get("restock_date", r.get("synced_at", "—"))[:10]
-                        lines.append(
-                            f"• *{r.get('product_name')}*: {r.get('quantity')} {r.get('unit','pcs')} "
-                            f"| {fmt_rp(r.get('purchase_price',0))}/pcs | {tanggal}"
-                        )
-                    return "\n".join(lines)
-                return f"ℹ️ Belum ada riwayat restock {f'untuk \"{product_query}\"' if product_query else ''}."
-
-        # ── Riwayat inventory correction ─────────
-        if intent == "inventory_history":
-            product_query = extract_product_query(
-                re.sub(r'riwayat\s+inventory|history\s+inventory|koreksi\s+stok', '', text, flags=re.I).strip()
-            )
-            tool = self.registry.get_tool("get_inventory_history")
-            if tool and RBACManager.can_access_tool(role, tool.name):
-                result = await tool.execute({"product_name": product_query, "limit": 10})
-                rows = result.data.get("inventory_history", [])
-                if rows:
-                    label = product_query or "Semua Produk"
-                    lines = [f"🔧 *Riwayat Koreksi Inventory ({label}):*"]
-                    for r in rows:
-                        tanggal = r.get("corrected_at", r.get("synced_at", "—"))[:10]
-                        delta = r.get("delta", 0)
-                        sign = "+" if float(delta or 0) >= 0 else ""
-                        lines.append(
-                            f"• *{r.get('product_name')}*: {sign}{delta} | "
-                            f"Alasan: {r.get('reason','—')} | {tanggal}"
-                        )
-                    return "\n".join(lines)
-                return f"ℹ️ Belum ada riwayat koreksi inventory {f'untuk \"{product_query}\"' if product_query else ''}."
-
-        # ── Laporan penjualan ────────────────────
-        if intent == "laporan_penjualan":
-            period_info = parse_date_or_period(text)
-            if period_info["type"] == "range":
-                tool = self.registry.get_tool("get_transaction_summary")
-                if tool and RBACManager.can_access_tool(role, tool.name):
-                    result = await tool.execute({
-                        "start_date": period_info["start_date"],
-                        "end_date": period_info["end_date"],
-                        "period_label": period_info["label"]
-                    })
-                    if result.success:
-                        d = result.data
-                        return (
-                            f"📊 *Laporan Penjualan — {period_info['label']}:*\n"
-                            f"• Omset: {fmt_rp(d.get('total_revenue',0))}\n"
-                            f"• Profit: {fmt_rp(d.get('total_profit',0))}\n"
-                            f"• Transaksi: {d.get('total_transactions',0)} nota\n"
-                            f"• Hari Aktif: {d.get('period_days',0)} hari"
-                        )
-            else:
-                target_date = period_info.get("date", "")
-                tool = self.registry.get_tool("get_daily_revenue")
-                if tool and RBACManager.can_access_tool(role, tool.name):
-                    result = await tool.execute({"date": target_date})
-                    if result.success and "total_revenue" in result.data:
-                        d = result.data
-                        date_display = d.get("date") or period_info.get("label", "Hari ini")
-                        return (
-                            f"📊 *Laporan Penjualan — {date_display}:*\n"
-                            f"• Omset: {fmt_rp(d.get('total_revenue',0))}\n"
-                            f"• Profit: {fmt_rp(d.get('total_profit',0))}\n"
-                            f"• Transaksi: {d.get('total_transactions',0)} nota"
-                        )
-            return "ℹ️ Belum ada data laporan penjualan yang tersinkronisasi dari POS untuk periode tersebut."
-
-        # ── Piutang (info saja) ──────────────────
         if intent == "piutang":
             return (
                 "💳 *Informasi Piutang Pelanggan*\n\n"
@@ -393,17 +268,56 @@ class MasterAgent:
                 "Gunakan perintah `/piutang [nama]` di Desktop Bot, atau buka menu *Pelanggan & Piutang* di aplikasi."
             )
 
-        # ── Fallback ke LLM dengan memory ────────
+        # ── Agent Runtime Pipeline Execution ────────
+        # Step 1: Planner Agent decompose plan
+        plan = self.planner.plan(intent, text, user_role=role)
+
+        # Step 2: Agent Supervisor execute sub-tasks across specialist agents
+        gathered_outputs = {}
+        if plan.tasks:
+            gathered_outputs = await self.supervisor.execute_plan(plan, user_role=role)
+
+        # Step 3: Reflection Agent evaluate outputs and data integrity
+        reflection_res = self.reflection.reflect(text, intent, gathered_outputs)
+
+        # Direct response shortcuts for simple data formatting if confidence is high
+        if intent == "cek_stok" and "products" in reflection_res.summary_data:
+            products = reflection_res.summary_data["products"]
+            if products:
+                prod_q = extract_product_query(text) or "Semua Produk"
+                lines = [f"📦 *Hasil Stok ({prod_q}):*"]
+                for p in products:
+                    stock_val = float(p.get("stock", 0) or 0)
+                    status = "🔴 Kritis" if p.get("is_low_stock") or stock_val <= 10 else "🟢 Aman"
+                    lines.append(
+                        f"• *{p.get('name')}*: {stock_val:g} {p.get('unit','pcs')} "
+                        f"({status}) — {fmt_rp(p.get('selling_price', 0))}"
+                    )
+                return "\n".join(lines)
+
+        if intent == "laporan_penjualan" and "sales" in reflection_res.summary_data:
+            d = reflection_res.summary_data["sales"]
+            if "total_revenue" in d:
+                return (
+                    f"📊 *Laporan Penjualan:* \n"
+                    f"• Omset: {fmt_rp(d.get('total_revenue',0))}\n"
+                    f"• Profit: {fmt_rp(d.get('total_profit',0))}\n"
+                    f"• Transaksi: {d.get('total_transactions',0)} nota"
+                )
+
+        # Step 4: LLM Synthesis with context, history, and store brain preferences
+        store_mem = await self.store_brain.get_store_memory(user_id=user_id)
         system_prompt = (
-            "Anda adalah Smart Sembako Assistant, asisten AI cerdas untuk toko kelontong/sembako.\n"
-            "Jawab pertanyaan pemilik toko secara ramah, singkat, dan akurat dalam Bahasa Indonesia.\n"
-            "Anda memiliki memori percakapan — gunakan konteks sebelumnya bila relevan.\n"
-            "Jika ditanya soal fitur OCR atau input stok baru, arahkan ke Desktop App.\n"
-            "JANGAN mengarang data stok atau penjualan — selalu akui jika data tidak tersedia."
+            "Anda adalah Smart Sembako Assistant (Hermes Agent Runtime), asisten AI cerdas untuk toko kelontong/sembako.\n"
+            "Jawab pertanyaan pemilik/kasir toko secara ramah, profesional, dan akurat dalam Bahasa Indonesia.\n"
+            f"Fakta Terverifikasi (Reflection Engine): {reflection_res.formatted_context}\n"
+            f"Preferensi Toko (Store Brain): {store_mem}\n"
+            "Gunakan memori percakapan bila relevan. Jika ditanya fitur OCR/stok baru, arahkan ke Desktop App."
         )
+
         messages = [{"role": "system", "content": system_prompt}]
-        messages.extend(history[-8:])  # inject max 8 pesan terakhir sebagai konteks
+        messages.extend(history[-8:])
         messages.append({"role": "user", "content": text})
 
-        response_text, provider = await self.model_manager.chat(messages, model_tier="balanced")
+        response_text, _ = await self.model_manager.chat(messages, model_tier="balanced")
         return response_text

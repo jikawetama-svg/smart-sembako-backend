@@ -1,54 +1,30 @@
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
 from tools.registry import BaseTool, ToolRegistry
-from tools.inventory_tools import GetStockTool, FindProductTool, GetLowStockTool
-from tools.sales_tools import GetDailyRevenueTool, GetTransactionSummaryTool, GetTopProductsTool
-from tools.ocr_tools import ParseReceiptImageTool
-from tools.forecast_tools import PredictRestockTool, RunProfitAnalysisTool
 
-class InventoryAgent:
-    """Specialist Agent for Inventory Management"""
+class BaseSpecialistAgent:
     def __init__(self, registry: ToolRegistry):
         self.registry = registry
 
-    async def run(self, action: str, params: dict) -> dict:
-        tool = self.registry.get_tool(action)
+    async def execute_task(self, tool_name: str, params: dict) -> dict:
+        tool = self.registry.get_tool(tool_name)
         if tool:
             res = await tool.execute(params)
-            return res.data
-        return {"error": f"Unknown inventory action: {action}"}
+            return {"success": res.success, "data": res.data, "error": res.error}
+        return {"success": False, "error": f"Tool '{tool_name}' not found in registry"}
 
-class SalesAgent:
-    """Specialist Agent for Sales and Revenue Analysis"""
-    def __init__(self, registry: ToolRegistry):
-        self.registry = registry
 
-    async def run(self, action: str, params: dict) -> dict:
-        tool = self.registry.get_tool(action)
-        if tool:
-            res = await tool.execute(params)
-            return res.data
-        return {"error": f"Unknown sales action: {action}"}
+class InventoryAgent(BaseSpecialistAgent):
+    """Specialist Agent for Inventory, Stock Search, and Low Stock Alerts."""
+    pass
 
-class OCRAgent:
-    """Specialist Agent for Struk/Receipt OCR Parsing"""
-    def __init__(self, registry: ToolRegistry):
-        self.registry = registry
+class SalesAgent(BaseSpecialistAgent):
+    """Specialist Agent for Sales, Revenue, and Transaction Analytics."""
+    pass
 
-    async def run(self, params: dict) -> dict:
-        tool = self.registry.get_tool("parse_receipt_image")
-        if tool:
-            res = await tool.execute(params)
-            return res.data
-        return {"error": "OCR tool not available"}
+class OCRAgent(BaseSpecialistAgent):
+    """Specialist Agent for Struk/Receipt Image OCR Processing."""
+    pass
 
-class AnalyticsAgent:
-    """Specialist Agent for Financial & Predictive Analytics"""
-    def __init__(self, registry: ToolRegistry):
-        self.registry = registry
-
-    async def run(self, action: str, params: dict) -> dict:
-        tool = self.registry.get_tool(action)
-        if tool:
-            res = await tool.execute(params)
-            return res.data
-        return {"error": f"Unknown analytics action: {action}"}
+class AnalyticsAgent(BaseSpecialistAgent):
+    """Specialist Agent for Financial, Restock Prediction, and Profit Analysis."""
+    pass

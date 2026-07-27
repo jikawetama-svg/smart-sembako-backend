@@ -3,6 +3,7 @@ from config import settings
 
 class RBACManager:
     OWNER_ROLE = "owner"
+    ADMIN_ROLE = "admin"
     CASHIER_ROLE = "kasir"
     PUBLIC_ROLE = "public"
 
@@ -12,6 +13,11 @@ class RBACManager:
             "get_expiring_products", "get_daily_revenue", "get_transaction_summary",
             "get_top_products", "run_profit_analysis", "sync_to_gsheets",
             "predict_restock", "get_restock_history", "get_inventory_history",
+        ],
+        "admin": [
+            "get_stock", "find_product", "get_low_stock", "get_low_stock_alert",
+            "get_expiring_products", "get_daily_revenue", "get_transaction_summary",
+            "get_top_products", "predict_restock", "get_restock_history", "get_inventory_history",
         ],
         "kasir": [
             "get_stock", "find_product", "get_low_stock", "get_low_stock_alert",
