@@ -49,8 +49,18 @@ class GetStockTool(BaseTool):
         products = await query_supabase("products_sync", {
             "select": "name,stock,unit,selling_price,is_low_stock",
             "name": f"ilike.*{query}*",
-            "limit": 10
+            "limit": 15
         })
+
+        if not products and " " in query:
+            words = [w for w in query.split() if len(w) > 1]
+            if words:
+                or_clause = ",".join([f"name.ilike.*{w}*" for w in words])
+                products = await query_supabase("products_sync", {
+                    "select": "name,stock,unit,selling_price,is_low_stock",
+                    "or": f"({or_clause})",
+                    "limit": 15
+                })
 
         return ToolResult(success=True, data={"products": products, "query": query})
 
