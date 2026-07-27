@@ -6,20 +6,20 @@ class RBACManager:
     CASHIER_ROLE = "kasir"
     PUBLIC_ROLE = "public"
 
-    # Restricted tools requiring Owner or Cashier privilege
     RESTRICTED_TOOLS = {
         "owner": [
-            "get_stock", "find_product", "get_low_stock", 
-            "get_daily_revenue", "get_transaction_summary", 
-            "get_top_products", "run_profit_analysis", 
-            "sync_to_gsheets", "predict_restock", "get_expiring_products"
+            "get_stock", "find_product", "get_low_stock", "get_low_stock_alert",
+            "get_expiring_products", "get_daily_revenue", "get_transaction_summary",
+            "get_top_products", "run_profit_analysis", "sync_to_gsheets",
+            "predict_restock", "get_restock_history", "get_inventory_history",
         ],
         "kasir": [
-            "get_stock", "find_product", "get_low_stock", 
-            "get_daily_revenue", "get_expiring_products"
+            "get_stock", "find_product", "get_low_stock", "get_low_stock_alert",
+            "get_daily_revenue", "get_expiring_products",
+            "get_restock_history",
         ],
         "public": [
-            "get_stock", "find_product"
+            "get_stock", "find_product",
         ]
     }
 
@@ -32,14 +32,15 @@ class RBACManager:
             return cls.OWNER_ROLE
         elif user_id in cashiers:
             return cls.CASHIER_ROLE
-        
-        # If no explicit list configured, default to owner for initial setup
+
+        # Jika tidak ada list yang dikonfigurasi, default owner (initial setup)
         if not owners and not cashiers:
             return cls.OWNER_ROLE
-            
+
         return cls.PUBLIC_ROLE
 
     @classmethod
     def can_access_tool(cls, role: str, tool_name: str) -> bool:
         allowed = cls.RESTRICTED_TOOLS.get(role, cls.RESTRICTED_TOOLS["public"])
         return tool_name in allowed
+

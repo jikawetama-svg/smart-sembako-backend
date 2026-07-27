@@ -5,14 +5,14 @@ import socket
 import asyncio
 import httpx
 import traceback
+from datetime import datetime, timezone
 from typing import Dict, Any
-from fastapi import FastAPI, Request, Response, Depends, HTTPException, Header
+from fastapi import FastAPI, Request, Response, HTTPException, Header
 
-# Force IPv4 socket resolution on HF Spaces to bypass IPv6 egress handshake timeout
+# Force IPv4
 old_getaddrinfo = socket.getaddrinfo
 def ipv4_only_getaddrinfo(host, port, family=0, type=0, proto=0, flags=0):
     return old_getaddrinfo(host, port, socket.AF_INET, type, proto, flags)
-
 socket.getaddrinfo = ipv4_only_getaddrinfo
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -20,46 +20,49 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from config import settings
 from telegram.webhook import verify_telegram_webhook, parse_telegram_update
 from agents.master_agent import MasterAgent
+from webhook_manager import set_webhook, delete_webhook, build_webhook_url, get_webhook_info
 
 app = FastAPI(
     title=settings.APP_NAME,
-    version="6.2.0",
-    description="Smart Sembako Cloud Bot Router (Embedded Dual-Runtime Service)"
+    version="7.0.0",
+    description="Smart Sembako Cloud Bot — Full Feature + AI Memory + Failover"
 )
 
 master_agent = MasterAgent()
 
-async def send_telegram_response(bot_token: str, chat_id: int, response_text: str):
-    tg_url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
-    payload = {"chat_id": chat_id, "text": str(response_text)}
+# ─────────────────────────────────────────────
+# State: apakah Desktop Bot sedang aktif
+# ─────────────────────────────────────────────
+_desktop_is_online: bool = False
+_desktop_last_seen: datetime | None = None
 
-    # Attempt 1: Async httpx with trust_env=True and forced IPv4
-    try:
-        async with httpx.AsyncClient(trust_env=True, timeout=10.0) as client:
-            res = await client.post(tg_url, json=payload)
-            print(f"[Telegram Send httpx SUCCESS] chat_id={chat_id}, status={res.status_code}, response={res.text}")
-            return
-    except Exception as e:
-        print(f"[Telegram Send httpx Warning]: {e}. Retrying via urllib IPv4...")
 
-    # Attempt 2: Standard library urllib fallback over IPv4
-    try:
-        def _urllib_send():
-            import urllib.request
-            data_bytes = json.dumps(payload).encode('utf-8')
-            req = urllib.request.Request(
-                tg_url,
-                data=data_bytes,
-                headers={"Content-Type": "application/json"}
-            )
-            with urllib.request.urlopen(req, timeout=10) as resp:
-                return resp.read().decode('utf-8')
+# ─────────────────────────────────────────────
+# Startup: register webhook jika Desktop offline
+# ─────────────────────────────────────────────
+@app.on_event("startup")
+async def on_startup():
+    global _desktop_is_online
+    bot_token = settings.TELEGRAM_BOT_TOKEN
+    if not bot_token:
+        print("[Startup] TELEGRAM_BOT_TOKEN not configured.")
+        return
 
-        res_text = await asyncio.to_thread(_urllib_send)
-        print(f"[Telegram Send urllib SUCCESS]: {res_text}")
-    except Exception as e2:
-        print(f"[Telegram Send urllib Exception]: {e2}\n{traceback.format_exc()}")
+    webhook_info = await get_webhook_info(bot_token)
+    current_url = webhook_info.get("url", "")
+    expected_url = build_webhook_url()
 
+    if not _desktop_is_online and current_url != expected_url:
+        success = await set_webhook(bot_token, expected_url, settings.TELEGRAM_SECRET_TOKEN)
+        if success:
+            print(f"[Startup] ✅ Webhook otomatis didaftarkan: {expected_url}")
+        else:
+            print(f"[Startup] ⚠️ Gagal mendaftarkan webhook. Akan dicoba saat endpoint /health diakses.")
+
+
+# ─────────────────────────────────────────────
+# Health check
+# ─────────────────────────────────────────────
 @app.get("/")
 @app.head("/")
 @app.get("/bot-health")
@@ -67,9 +70,75 @@ async def health_check():
     return {
         "status": "healthy",
         "bot_app": settings.APP_NAME,
+        "version": "7.0.0",
+        "desktop_online": _desktop_is_online,
+        "desktop_last_seen": _desktop_last_seen.isoformat() if _desktop_last_seen else None,
         "supabase_configured": bool(settings.SUPABASE_URL and settings.SUPABASE_KEY),
-        "telegram_configured": bool(settings.TELEGRAM_BOT_TOKEN or os.getenv("TELEGRAM_BOT_TOKEN"))
+        "telegram_configured": bool(settings.TELEGRAM_BOT_TOKEN)
     }
+
+
+# ─────────────────────────────────────────────
+# Failover: Desktop Bot notify ONLINE
+# ─────────────────────────────────────────────
+@app.post("/internal/desktop-online")
+async def desktop_online(request: Request):
+    secret = request.headers.get("X-Desktop-Secret", "")
+    if secret != settings.TELEGRAM_SECRET_TOKEN:
+        raise HTTPException(status_code=403, detail="Forbidden")
+
+    global _desktop_is_online, _desktop_last_seen
+    _desktop_is_online = True
+    _desktop_last_seen = datetime.now(timezone.utc)
+
+    bot_token = settings.TELEGRAM_BOT_TOKEN
+    if bot_token:
+        asyncio.create_task(delete_webhook(bot_token))
+        print("[Failover] ✅ Desktop Bot ONLINE — webhook dihapus, polling mode aktif")
+
+    return {"status": "ok", "message": "Desktop online, webhook removed"}
+
+
+# ─────────────────────────────────────────────
+# Failover: Desktop Bot notify OFFLINE
+# ─────────────────────────────────────────────
+@app.post("/internal/desktop-offline")
+async def desktop_offline(request: Request):
+    secret = request.headers.get("X-Desktop-Secret", "")
+    if secret != settings.TELEGRAM_SECRET_TOKEN:
+        raise HTTPException(status_code=403, detail="Forbidden")
+
+    global _desktop_is_online
+    _desktop_is_online = False
+
+    bot_token = settings.TELEGRAM_BOT_TOKEN
+    if bot_token:
+        webhook_url = build_webhook_url()
+        asyncio.create_task(set_webhook(bot_token, webhook_url, settings.TELEGRAM_SECRET_TOKEN))
+        print("[Failover] ✅ Desktop Bot OFFLINE — webhook terdaftar ulang")
+
+    return {"status": "ok", "message": "Desktop offline, webhook re-registered"}
+
+
+# ─────────────────────────────────────────────
+# Telegram Webhook endpoint
+# ─────────────────────────────────────────────
+async def send_telegram_response(bot_token: str, chat_id: int, response_text: str):
+    tg_url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
+    payload = {
+        "chat_id": chat_id,
+        "text": str(response_text),
+        "parse_mode": "Markdown"
+    }
+    try:
+        async with httpx.AsyncClient(trust_env=True, timeout=10.0) as client:
+            res = await client.post(tg_url, json=payload)
+            if res.status_code != 200:
+                # Retry tanpa Markdown jika format error
+                payload["parse_mode"] = None
+                await client.post(tg_url, json=payload)
+    except Exception as e:
+        print(f"[Telegram Send Error]: {e}\n{traceback.format_exc()}")
 
 
 @app.post("/webhook/telegram")
@@ -77,6 +146,10 @@ async def telegram_webhook(
     request: Request,
     x_telegram_bot_api_secret_token: str = Header(None, alias="X-Telegram-Bot-Api-Secret-Token")
 ):
+    # Jika Desktop online, ignore webhook (Desktop pakai polling)
+    if _desktop_is_online:
+        return {"status": "ignored", "reason": "desktop_bot_active"}
+
     await verify_telegram_webhook(request, x_telegram_bot_api_secret_token)
 
     try:
@@ -86,58 +159,29 @@ async def telegram_webhook(
 
     update_info = parse_telegram_update(body)
     chat_id = update_info.get("chat_id")
-    user_id = update_info.get("user_id")
+    user_id = update_info.get("user_id") or update_info.get("chat_id")
     text = update_info.get("text", "")
 
     if not chat_id or not text:
         return {"status": "ignored", "reason": "empty message or missing chat_id"}
 
     try:
-        response_text = await master_agent.handle_message(user_id=user_id or 0, message_text=text)
+        response_text = await master_agent.handle_message(
+            user_id=int(user_id or 0),
+            message_text=text
+        )
     except Exception as e:
         print(f"[MasterAgent Error]: {e}\n{traceback.format_exc()}")
-        response_text = f"🤖 Halo! Asisten Smart Sembako siap membantu toko Anda. (Pesan: {text})"
+        response_text = "⚠️ Terjadi kesalahan internal. Silakan coba lagi."
 
     bot_token = settings.TELEGRAM_BOT_TOKEN or os.getenv("TELEGRAM_BOT_TOKEN", "")
     if bot_token:
-        # Fire-and-forget background task so webhook responds 200 instantly
         asyncio.create_task(send_telegram_response(bot_token, chat_id, response_text))
-    else:
-        print(f"[Telegram Webhook Warning] TELEGRAM_BOT_TOKEN is missing! (chat_id={chat_id})")
 
-    return {
-        "status": "success",
-        "chat_id": chat_id,
-        "response_text": str(response_text)
-    }
+    return {"status": "success", "chat_id": chat_id}
 
-# Proxy root '/' and all other routes to original 9router running on internal port 3000
-@app.api_route("/", methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS", "HEAD"])
-@app.api_route("/{path:path}", methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS", "HEAD"])
-async def proxy_to_9router(request: Request, path: str = ""):
-    target_url = f"http://127.0.0.1:3000/{path}"
-    async with httpx.AsyncClient() as client:
-        try:
-            req_headers = {k: v for k, v in request.headers.items() if k.lower() != 'host'}
-            req_body = await request.body()
-            resp = await client.request(
-                method=request.method,
-                url=target_url,
-                headers=req_headers,
-                content=req_body,
-                params=request.query_params,
-                timeout=60.0
-            )
-            resp_headers = {k: v for k, v in resp.headers.items() if k.lower() not in ['content-length', 'content-encoding', 'transfer-encoding']}
-            return Response(
-                content=resp.content,
-                status_code=resp.status_code,
-                headers=resp_headers
-            )
-        except Exception as e:
-            return Response(content=f"9router internal proxy: {e}", status_code=502)
 
 if __name__ == "__main__":
     import uvicorn
-    port = int(os.getenv("PORT", "7860"))
+    port = int(os.getenv("PORT", "8000"))
     uvicorn.run(app, host="0.0.0.0", port=port)
