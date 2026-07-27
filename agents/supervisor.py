@@ -2,7 +2,7 @@ import asyncio
 from typing import Dict, Any, List
 from tools.registry import ToolRegistry
 from agents.planner import ExecutionPlan, AgentTask
-from agents.specialized_agents import InventoryAgent, SalesAgent, OCRAgent, AnalyticsAgent
+from agents.specialized_agents import InventoryAgent, SalesAgent, OCRAgent, AnalyticsAgent, CustomerAgent
 from telegram.rbac import RBACManager
 
 class AgentSupervisor:
@@ -17,12 +17,14 @@ class AgentSupervisor:
         self.sales_agent = SalesAgent(registry)
         self.ocr_agent = OCRAgent(registry)
         self.analytics_agent = AnalyticsAgent(registry)
+        self.customer_agent = CustomerAgent(registry)
 
         self._agent_map = {
             "inventory": self.inventory_agent,
             "sales": self.sales_agent,
             "ocr": self.ocr_agent,
-            "analytics": self.analytics_agent
+            "analytics": self.analytics_agent,
+            "customer": self.customer_agent
         }
 
     async def execute_plan(self, plan: ExecutionPlan, user_role: str = "owner") -> Dict[str, Any]:

@@ -77,6 +77,13 @@ class ReflectionAgent:
                 summary_data["expiring_products"] = rows
                 context_parts.append(f"Produk Expired: Ditemukan {len(rows)} produk mendekati kadaluarsa.")
 
+            # Customer debt / Piutang
+            elif "customers" in data or "total_debtors" in data:
+                summary_data["customer_debt"] = data
+                c_list = data.get("customers", [])
+                tot_debt = data.get("total_all_debt", 0)
+                context_parts.append(f"Data Piutang: Ditemukan {len(c_list)} pelanggan berhutang dengan total Rp {tot_debt:,.0f}.")
+
         confidence = 1.0 if not warnings else max(0.5, 1.0 - (len(warnings) * 0.2))
         formatted_context = "\n".join(context_parts) if context_parts else "Data diproses secara normal."
 

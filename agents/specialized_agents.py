@@ -28,3 +28,7 @@ class OCRAgent(BaseSpecialistAgent):
 class AnalyticsAgent(BaseSpecialistAgent):
     """Specialist Agent for Financial, Restock Prediction, and Profit Analysis."""
     pass
+
+class CustomerAgent(BaseSpecialistAgent):
+    """Specialist Agent for Customer Debt and Receivable Analytics."""
+    pass

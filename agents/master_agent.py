@@ -130,6 +130,8 @@ def fmt_rp(val) -> str:
         return "Rp 0"
 
 
+from tools.customer_tools import GetCustomerDebtTool
+
 # ─────────────────────────────────────────────
 # MASTER AGENT
 # ─────────────────────────────────────────────
@@ -159,6 +161,8 @@ class MasterAgent:
         # Restock & Inventory history
         self.registry.register(GetRestockHistoryTool())
         self.registry.register(GetInventoryHistoryTool())
+        # Customer & Debt
+        self.registry.register(GetCustomerDebtTool())
 
     def classify_intent(self, text: str) -> str:
         lower = text.lower()
@@ -264,12 +268,6 @@ class MasterAgent:
             return DESKTOP_ONLY_FEATURES["ocr"]
         if intent == "desktop_piutang_bayar":
             return DESKTOP_ONLY_FEATURES["piutang_bayar"]
-        if intent == "piutang":
-            return (
-                "💳 *Informasi Piutang Pelanggan*\n\n"
-                "Data piutang real-time hanya tersedia via Desktop Bot (akses langsung POS).\n\n"
-                "Gunakan perintah `/piutang [nama]` di Desktop Bot, atau buka menu *Pelanggan & Piutang* di aplikasi."
-            )
 
         # ── Chat Configuration Commands ─────────
         lower_text = text.lower().strip()
@@ -307,12 +305,32 @@ class MasterAgent:
         rag_context = self.knowledge_manager.search_knowledge(text, top_k=2)
 
         # Direct response shortcuts for simple data formatting if confidence is high
-        if intent == "cek_stok" and "products" in reflection_res.summary_data:
-            products = reflection_res.summary_data["products"]
-            if products:
-                prod_q = extract_product_query(text) or "Semua Produk"
+        if intent == "piutang":
+            cust_data = reflection_res.summary_data.get("customer_debt") or reflection_res.summary_data.get("customers")
+            if cust_data is not None:
+                if isinstance(cust_data, dict):
+                    c_list = cust_data.get("customers", [])
+                    tot_all = cust_data.get("total_all_debt", 0)
+                else:
+                    c_list = cust_data
+                    tot_all = sum(float(c.get("total_debt", 0)) for c in c_list)
+
+                if not c_list:
+                    return "💳 *Informasi Piutang Pelanggan*\n\n✅ Tidak ada catatan hutang/piutang aktif saat ini."
+
+                lines = [f"💳 *Laporan Piutang Pelanggan (Total: {fmt_rp(tot_all)}):*"]
+                for c in c_list[:15]:
+                    lines.append(f"• *{c.get('name')}*: {fmt_rp(c.get('total_debt',0))} (HP: {c.get('phone','-')})")
+                return "\n".join(lines)
+
+        if intent in ("cek_stok", "stok_kritis"):
+            products = reflection_res.summary_data.get("products") or reflection_res.summary_data.get("low_stock_products")
+            if products is not None and isinstance(products, list):
+                if not products:
+                    return "🟢 *Semua Stok Aman!* Tidak ada produk kritis saat ini."
+                prod_q = extract_product_query(text) or "Stok Barang"
                 lines = [f"📦 *Hasil Stok ({prod_q}):*"]
-                for p in products:
+                for p in products[:15]:
                     stock_val = float(p.get("stock", 0) or 0)
                     status = "🔴 Kritis" if p.get("is_low_stock") or stock_val <= 10 else "🟢 Aman"
                     lines.append(
@@ -324,8 +342,9 @@ class MasterAgent:
         if intent == "laporan_penjualan" and "sales" in reflection_res.summary_data:
             d = reflection_res.summary_data["sales"]
             if "total_revenue" in d:
+                period_label = d.get("period_label") or d.get("date") or "Hari Ini"
                 return (
-                    f"📊 *Laporan Penjualan:* \n"
+                    f"📊 *Laporan Penjualan ({period_label}):* \n"
                     f"• Omset: {fmt_rp(d.get('total_revenue',0))}\n"
                     f"• Profit: {fmt_rp(d.get('total_profit',0))}\n"
                     f"• Transaksi: {d.get('total_transactions',0)} nota"
