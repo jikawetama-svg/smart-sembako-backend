@@ -18,8 +18,14 @@ class Settings:
     
     # RBAC Access Control (Comma separated Telegram User IDs)
     OWNER_TELEGRAM_IDS: str = os.getenv("OWNER_TELEGRAM_IDS", "")
+    ADMIN_TELEGRAM_IDS: str = os.getenv("ADMIN_TELEGRAM_IDS", "")
     CASHIER_TELEGRAM_IDS: str = os.getenv("CASHIER_TELEGRAM_IDS", "")
     
+    # Scheduler & Proactive Notifications Configuration
+    SCHEDULER_ENABLED: bool = os.getenv("SCHEDULER_ENABLED", "true").lower() in ("true", "1", "yes")
+    SCHEDULER_MORNING_HR: int = int(os.getenv("SCHEDULER_MORNING_HR", "7"))
+    SCHEDULER_EVENING_HR: int = int(os.getenv("SCHEDULER_EVENING_HR", "20"))
+
     # LLM Provider API Keys
     GROQ_API_KEY: str = os.getenv("GROQ_API_KEY", "")
     GEMINI_API_KEY: str = os.getenv("GEMINI_API_KEY", "")
@@ -34,6 +40,11 @@ class Settings:
         if not self.OWNER_TELEGRAM_IDS:
             return []
         return [int(x.strip()) for x in self.OWNER_TELEGRAM_IDS.split(",") if x.strip().isdigit()]
+
+    def get_admin_ids(self) -> List[int]:
+        if not self.ADMIN_TELEGRAM_IDS:
+            return []
+        return [int(x.strip()) for x in self.ADMIN_TELEGRAM_IDS.split(",") if x.strip().isdigit()]
 
     def get_cashier_ids(self) -> List[int]:
         if not self.CASHIER_TELEGRAM_IDS:

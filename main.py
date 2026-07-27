@@ -40,10 +40,19 @@ _desktop_last_seen: datetime | None = None
 # ─────────────────────────────────────────────
 # Startup: register webhook jika Desktop offline
 # ─────────────────────────────────────────────
+from agents.scheduler_agent import SchedulerAgent
+
 @app.on_event("startup")
 async def on_startup():
     global _desktop_is_online
     bot_token = settings.TELEGRAM_BOT_TOKEN
+    
+    # Start proactive scheduler if enabled
+    if settings.SCHEDULER_ENABLED:
+        scheduler = SchedulerAgent(bot_id="cloud_bot")
+        asyncio.create_task(scheduler.start_scheduler())
+        print("[Startup] ⏰ Proactive Scheduler Agent active")
+
     if not bot_token:
         print("[Startup] TELEGRAM_BOT_TOKEN not configured.")
         return

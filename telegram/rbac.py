@@ -32,15 +32,18 @@ class RBACManager:
     @classmethod
     def get_user_role(cls, user_id: int) -> str:
         owners = settings.get_owner_ids()
+        admins = settings.get_admin_ids()
         cashiers = settings.get_cashier_ids()
 
         if user_id in owners:
             return cls.OWNER_ROLE
+        elif user_id in admins:
+            return cls.ADMIN_ROLE
         elif user_id in cashiers:
             return cls.CASHIER_ROLE
 
         # Jika tidak ada list yang dikonfigurasi, default owner (initial setup)
-        if not owners and not cashiers:
+        if not owners and not admins and not cashiers:
             return cls.OWNER_ROLE
 
         return cls.PUBLIC_ROLE

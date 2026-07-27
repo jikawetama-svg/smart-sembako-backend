@@ -134,6 +134,29 @@ class PlannerAgent:
                 description="Analisis margin profit 7 hari terakhir"
             ))
 
+        elif intent == "analisis_toko":
+            plan.tasks.append(AgentTask(
+                task_id="task_sales_daily",
+                target_agent="sales",
+                tool_name="get_daily_revenue",
+                params={"date": ""},
+                description="Penjualan hari ini"
+            ))
+            plan.tasks.append(AgentTask(
+                task_id="task_low_stock",
+                target_agent="inventory",
+                tool_name="get_low_stock",
+                params={},
+                description="Stok kritis"
+            ))
+            plan.tasks.append(AgentTask(
+                task_id="task_top_products",
+                target_agent="sales",
+                tool_name="get_top_products",
+                params={"limit": 5},
+                description="Produk terlaris"
+            ))
+
         return plan
 
     def _extract_product(self, text: str) -> str:

@@ -17,6 +17,7 @@ from memory.store_brain import StoreBrain
 from agents.planner import PlannerAgent
 from agents.supervisor import AgentSupervisor
 from agents.reflection import ReflectionAgent
+from rag.knowledge_manager import KnowledgeManager
 
 # ─────────────────────────────────────────────
 # Kamus nama bulan Bahasa Indonesia
@@ -140,6 +141,8 @@ class MasterAgent:
         self.supervisor = AgentSupervisor(self.registry)
         self.reflection = ReflectionAgent()
         self.store_brain = StoreBrain()
+        self.knowledge_manager = KnowledgeManager()
+        self.knowledge_manager.load_and_index_sops()
         self._register_default_tools()
 
     def _register_default_tools(self):
@@ -268,6 +271,26 @@ class MasterAgent:
                 "Gunakan perintah `/piutang [nama]` di Desktop Bot, atau buka menu *Pelanggan & Piutang* di aplikasi."
             )
 
+        # ── Chat Configuration Commands ─────────
+        lower_text = text.lower().strip()
+        if lower_text.startswith("namaku "):
+            name_val = text[7:].strip()
+            await self.store_brain.save_store_memory("owner_name", name_val, user_id=user_id, user_role=role)
+            return f"✅ Baik Bapak/Ibu {name_val}, nama Anda telah disimpan di Store Brain!"
+
+        if lower_text.startswith("nama toko "):
+            store_val = text[10:].strip()
+            await self.store_brain.save_store_memory("store_name", store_val, user_id=user_id, user_role=role)
+            return f"✅ Nama toko telah diperbarui menjadi: *{store_val}*!"
+
+        if "jawaban singkat" in lower_text:
+            await self.store_brain.save_store_memory("response_style", "compact", user_id=user_id, user_role=role)
+            return "⚡ Gaya jawaban diubah menjadi: *Singkat & Padat*."
+
+        if "jawaban detail" in lower_text or "jawaban lengkap" in lower_text:
+            await self.store_brain.save_store_memory("response_style", "detail", user_id=user_id, user_role=role)
+            return "📝 Gaya jawaban diubah menjadi: *Detail & Lengkap*."
+
         # ── Agent Runtime Pipeline Execution ────────
         # Step 1: Planner Agent decompose plan
         plan = self.planner.plan(intent, text, user_role=role)
@@ -279,6 +302,9 @@ class MasterAgent:
 
         # Step 3: Reflection Agent evaluate outputs and data integrity
         reflection_res = self.reflection.reflect(text, intent, gathered_outputs)
+
+        # Step 4: RAG Knowledge Base search for SOPs & store guidelines
+        rag_context = self.knowledge_manager.search_knowledge(text, top_k=2)
 
         # Direct response shortcuts for simple data formatting if confidence is high
         if intent == "cek_stok" and "products" in reflection_res.summary_data:
@@ -305,14 +331,24 @@ class MasterAgent:
                     f"• Transaksi: {d.get('total_transactions',0)} nota"
                 )
 
-        # Step 4: LLM Synthesis with context, history, and store brain preferences
+        # Step 5: LLM Synthesis with context, history, store brain, and RAG knowledge
         store_mem = await self.store_brain.get_store_memory(user_id=user_id)
+        store_name = store_mem.get("store_name", "Smart Sembako")
+        owner_name = store_mem.get("owner_name", "Pemilik Toko")
+        style = store_mem.get("response_style", "normal")
+
         system_prompt = (
-            "Anda adalah Smart Sembako Assistant (Hermes Agent Runtime), asisten AI cerdas untuk toko kelontong/sembako.\n"
-            "Jawab pertanyaan pemilik/kasir toko secara ramah, profesional, dan akurat dalam Bahasa Indonesia.\n"
-            f"Fakta Terverifikasi (Reflection Engine): {reflection_res.formatted_context}\n"
-            f"Preferensi Toko (Store Brain): {store_mem}\n"
-            "Gunakan memori percakapan bila relevan. Jika ditanya fitur OCR/stok baru, arahkan ke Desktop App."
+            f"Anda adalah Smart Sembako Assistant, AI Agent cerdas untuk toko {store_name}.\n"
+            f"Anda sedang berbicara dengan {owner_name} (Role: {role.upper()}).\n"
+            f"Gaya jawaban disukai: {style}.\n"
+            "FAKTA TERVERIFIKASI DATABASE (WAJIB ACUAN UTAMA):\n"
+            f"{reflection_res.formatted_context or 'Tidak ada data spesifik dari database.'}\n\n"
+            "PENGETAHUAN SOP & ATURAN TOKO (RAG ENGINE):\n"
+            f"{rag_context or 'Tidak ada SOP khusus.'}\n\n"
+            "INSTRUKSI UTAMA:\n"
+            "1. Jawab ramah, akurat, dan profesional dalam Bahasa Indonesia.\n"
+            "2. Jangan mengarang angka stok atau penjualan — berpijaklah pada fakta terverifikasi.\n"
+            "3. Jika user menanyakan fitur OCR/input stok baru, arahkan ke Desktop App."
         )
 
         messages = [{"role": "system", "content": system_prompt}]
