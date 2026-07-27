@@ -12,7 +12,7 @@ class ModelManager:
         self,
         messages: List[Dict[str, str]],
         model_tier: str = "balanced",
-        max_tokens: int = 500,
+        max_tokens: int = 2048,
         temperature: float = 0.7
     ) -> Tuple[str, str]:
         """

@@ -84,10 +84,10 @@ class GetLowStockTool(BaseTool):
 
     async def execute(self, params: Dict[str, Any]) -> ToolResult:
         products = await query_supabase("products_sync", {
-            "select": "name,stock,unit,selling_price",
-            "is_low_stock": "eq.true",
+            "select": "name,stock,unit,selling_price,is_low_stock",
+            "or": "(is_low_stock.eq.true,stock.lte.10)",
             "order": "stock.asc",
-            "limit": 20
+            "limit": 25
         })
 
         return ToolResult(success=True, data={"low_stock_products": products, "count": len(products)})

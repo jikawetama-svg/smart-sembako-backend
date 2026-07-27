@@ -9,9 +9,10 @@ class GetDailyRevenueTool(BaseTool):
     async def execute(self, params: Dict[str, Any]) -> ToolResult:
         date_str = params.get("date", "").strip()
         
-        queryParams = {"select": "date,total_revenue,total_profit,total_transactions", "order": "date.desc", "limit": 1}
         if date_str:
             queryParams = {"select": "date,total_revenue,total_profit,total_transactions", "date": f"eq.{date_str}"}
+        else:
+            queryParams = {"select": "date,total_revenue,total_profit,total_transactions", "order": "date.desc", "limit": 1}
 
         summaries = await query_supabase("transactions_summary", queryParams)
 
@@ -21,11 +22,13 @@ class GetDailyRevenueTool(BaseTool):
                 "date": summary.get("date"),
                 "total_revenue": summary.get("total_revenue", 0),
                 "total_profit": summary.get("total_profit", 0),
-                "total_transactions": summary.get("total_transactions", 0)
+                "total_transactions": summary.get("total_transactions", 0),
+                "period_label": date_str or summary.get("date")
             })
 
         return ToolResult(success=True, data={
             "date": date_str or "Hari ini",
+            "period_label": date_str or "Hari ini",
             "total_revenue": 0,
             "total_profit": 0,
             "total_transactions": 0,

@@ -63,8 +63,8 @@ class GetLowStockAlertTool(BaseTool):
 
     async def execute(self, params: Dict[str, Any]) -> ToolResult:
         rows = await query_supabase("products_sync", {
-            "select": "name,stock,unit,selling_price,category_name",
-            "is_low_stock": "eq.true",
+            "select": "name,stock,unit,selling_price,category_name,is_low_stock",
+            "or": "(is_low_stock.eq.true,stock.lte.10)",
             "order": "stock.asc",
             "limit": 25
         })

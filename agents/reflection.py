@@ -42,10 +42,11 @@ class ReflectionAgent:
                 continue
 
             # Inventory / Stock checks
-            if "products" in data or "low_stock_products" in data:
-                prods = data.get("products", data.get("low_stock_products", []))
+            if "products" in data or "low_stock_products" in data or "low_stock_alerts" in data or "alerts" in data:
+                prods = data.get("products") or data.get("low_stock_products") or data.get("low_stock_alerts") or data.get("alerts") or []
                 total_items_found += len(prods)
                 summary_data["products"] = prods
+                summary_data["low_stock_products"] = prods
                 if not prods:
                     context_parts.append("Hasil pencarian produk: Kosong / tidak ditemukan.")
                 else:
@@ -58,6 +59,12 @@ class ReflectionAgent:
                 txs = data.get("total_transactions", 0)
                 summary_data["sales"] = data
                 context_parts.append(f"Ringkasan Penjualan: Omset Rp {rev:,.0f}, Profit Rp {prof:,.0f}, Transaksi: {txs} nota.")
+
+            # Top Products
+            elif "top_products" in data:
+                top_p = data.get("top_products", [])
+                summary_data["top_products"] = top_p
+                context_parts.append(f"Produk Terlaris: {len(top_p)} item teratas.")
 
             # Restock History
             elif "restock_history" in data:

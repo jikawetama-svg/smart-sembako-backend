@@ -308,29 +308,35 @@ class MasterAgent:
         if intent == "piutang":
             cust_data = reflection_res.summary_data.get("customer_debt") or reflection_res.summary_data.get("customers")
             if cust_data is not None:
+                msg = None
                 if isinstance(cust_data, dict):
                     c_list = cust_data.get("customers", [])
                     tot_all = cust_data.get("total_all_debt", 0)
+                    msg = cust_data.get("message")
                 else:
                     c_list = cust_data
                     tot_all = sum(float(c.get("total_debt", 0)) for c in c_list)
 
                 if not c_list:
+                    if msg:
+                        return f"💳 *Informasi Piutang Pelanggan*\n\n{msg}"
                     return "💳 *Informasi Piutang Pelanggan*\n\n✅ Tidak ada catatan hutang/piutang aktif saat ini."
 
                 lines = [f"💳 *Laporan Piutang Pelanggan (Total: {fmt_rp(tot_all)}):*"]
                 for c in c_list[:15]:
-                    lines.append(f"• *{c.get('name')}*: {fmt_rp(c.get('total_debt',0))} (HP: {c.get('phone','-')})")
+                    phone = c.get('phone')
+                    phone_str = f" (HP: {phone})" if phone and phone != '-' else ""
+                    lines.append(f"• *{c.get('name')}*: {fmt_rp(c.get('total_debt',0))}{phone_str}")
                 return "\n".join(lines)
 
-        if intent in ("cek_stok", "stok_kritis"):
+        if intent in ("cek_stok", "stok_kritis", "restock_rekomendasi"):
             products = reflection_res.summary_data.get("products") or reflection_res.summary_data.get("low_stock_products")
             if products is not None and isinstance(products, list):
                 if not products:
                     return "🟢 *Semua Stok Aman!* Tidak ada produk kritis saat ini."
-                prod_q = extract_product_query(text) or "Stok Barang"
+                prod_q = extract_product_query(text) or ("Stok Kritis" if intent in ("stok_kritis", "restock_rekomendasi") else "Stok Barang")
                 lines = [f"📦 *Hasil Stok ({prod_q}):*"]
-                for p in products[:15]:
+                for p in products[:20]:
                     stock_val = float(p.get("stock", 0) or 0)
                     status = "🔴 Kritis" if p.get("is_low_stock") or stock_val <= 10 else "🟢 Aman"
                     lines.append(
@@ -343,12 +349,21 @@ class MasterAgent:
             d = reflection_res.summary_data["sales"]
             if "total_revenue" in d:
                 period_label = d.get("period_label") or d.get("date") or "Hari Ini"
-                return (
-                    f"📊 *Laporan Penjualan ({period_label}):* \n"
-                    f"• Omset: {fmt_rp(d.get('total_revenue',0))}\n"
-                    f"• Profit: {fmt_rp(d.get('total_profit',0))}\n"
-                    f"• Transaksi: {d.get('total_transactions',0)} nota"
-                )
+                top_p = reflection_res.summary_data.get("top_products", [])
+                lines = [
+                    f"📊 *Laporan Penjualan ({period_label}):*",
+                    f"• Total Omset: {fmt_rp(d.get('total_revenue',0))}",
+                    f"• Estimasi Profit: {fmt_rp(d.get('total_profit',0))}",
+                    f"• Jumlah Transaksi: {d.get('total_transactions',0)} nota"
+                ]
+                if top_p:
+                    lines.append("\n🏆 *Produk Terlaris:*")
+                    for tp in top_p[:5]:
+                        if isinstance(tp, dict):
+                            lines.append(f"• *{tp.get('name')}*: {tp.get('qty',0)} {tp.get('unit','pcs')} ({fmt_rp(tp.get('total_sales',0))})")
+                        else:
+                            lines.append(f"• {tp}")
+                return "\n".join(lines)
 
         # Step 5: LLM Synthesis with context, history, store brain, and RAG knowledge
         store_mem = await self.store_brain.get_store_memory(user_id=user_id)

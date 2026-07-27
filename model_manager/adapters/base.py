@@ -10,7 +10,7 @@ class BaseModelAdapter(ABC):
     async def chat(
         self,
         messages: List[Dict[str, str]],
-        max_tokens: int = 500,
+        max_tokens: int = 2048,
         temperature: float = 0.7,
         **kwargs
     ) -> Tuple[str, int]:
