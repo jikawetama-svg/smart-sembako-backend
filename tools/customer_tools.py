@@ -11,7 +11,24 @@ class GetCustomerDebtTool(BaseTool):
         customer_name = params.get("customer_name", "").strip()
         # Strip noise words from customer query
         if customer_name:
-            customer_name = re.sub(r'(?i)^\b(pelanggan|atas nama|saudara)\b\s*', '', customer_name).strip()
+            lower_name = customer_name.lower()
+            if re.search(r"\b(semua|total|jumlah|seluruh|daftar)\b.*\b(piutang|hutang|utang|tagihan)\b", lower_name):
+                customer_name = ""
+            else:
+                prefixes = [
+                    "tampilkan detail transaksi piutang", "tampilkan detail transaksi hutang", "tampilkan detail transaksi utang",
+                    "tampilkan detail piutang", "tampilkan detail hutang", "tampilkan detail utang",
+                    "detail transaksi piutang", "detail transaksi hutang", "detail transaksi utang",
+                    "tampilkan piutang", "tampilkan hutang", "tampilkan utang",
+                    "cek detail piutang", "cek detail hutang", "cek detail utang",
+                    "detail piutang", "detail hutang", "detail utang",
+                    "cek piutang", "cek hutang", "cek utang",
+                    "piutang", "hutang", "utang", "tagihan",
+                    "pelanggan", "customer", "atas nama", "saudara"
+                ]
+                for prefix in sorted(prefixes, key=len, reverse=True):
+                    customer_name = re.sub(rf"(?i)^{re.escape(prefix)}\s*", "", customer_name).strip()
+                customer_name = re.sub(r"(?i)^(ibu|bapak|pak|bu)\s+", "", customer_name).strip()
         
         rows = []
         if customer_name:

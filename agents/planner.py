@@ -2,6 +2,8 @@ import re
 from dataclasses import dataclass, field
 from typing import List, Dict, Any, Optional
 from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
+from config import settings
 
 @dataclass
 class AgentTask:
@@ -170,13 +172,25 @@ class PlannerAgent:
         return plan
 
     def _extract_customer(self, text: str) -> str:
-        prefixes = ["/piutang", "piutang", "hutang", "tagihan", "cek piutang", "cek hutang"]
+        lower = text.lower().strip()
+        if re.search(r"\b(semua|total|jumlah|seluruh|daftar)\b.*\b(piutang|hutang|utang|tagihan)\b", lower):
+            return ""
+        prefixes = [
+            "/piutang", "piutang", "hutang", "utang", "tagihan",
+            "cek piutang", "cek hutang", "cek utang",
+            "tampilkan piutang", "tampilkan hutang", "tampilkan utang",
+            "tampilkan detail transaksi piutang", "tampilkan detail transaksi hutang", "tampilkan detail transaksi utang",
+            "tampilkan detail piutang", "tampilkan detail hutang", "tampilkan detail utang",
+            "detail transaksi piutang", "detail piutang", "cek detail piutang",
+            "cek detail hutang", "cek detail utang"
+        ]
         cleaned = text.strip()
         for p in sorted(prefixes, key=len, reverse=True):
             pattern = re.compile(rf'(?i)^{re.escape(p)}\s*')
             if pattern.search(cleaned):
                 cleaned = pattern.sub('', cleaned).strip()
                 break
+        cleaned = re.sub(r"(?i)^(pelanggan|customer|atas nama|saudara|ibu|bapak|pak|bu)\s+", "", cleaned).strip()
         return cleaned
 
     def _extract_product(self, text: str) -> str:
@@ -196,18 +210,68 @@ class PlannerAgent:
 
     def _parse_period(self, text: str) -> Dict[str, Any]:
         lower = text.lower()
-        today = datetime.now()
+        try:
+            today = datetime.now(ZoneInfo(settings.STORE_TIMEZONE))
+        except Exception:
+            today = datetime.now()
 
         if "kemarin" in lower:
             dt = today - timedelta(days=1)
             return {"type": "single_date", "date": dt.strftime("%Y-%m-%d"), "label": f"Kemarin ({dt.strftime('%d-%m-%Y')})"}
         if "hari ini" in lower:
             return {"type": "single_date", "date": today.strftime("%Y-%m-%d"), "label": f"Hari ini ({today.strftime('%d-%m-%Y')})"}
+        rel_weeks = re.search(r"(\d+)\s+(?:minggu|pekan)\s+(?:ini|terakhir)", lower)
+        if rel_weeks:
+            n = max(1, min(int(rel_weeks.group(1)), 52))
+            start_dt = today - timedelta(days=(n * 7) - 1)
+            return {"type": "range", "start_date": start_dt.strftime("%Y-%m-%d"),
+                    "end_date": today.strftime("%Y-%m-%d"), "label": f"{n} Minggu Terakhir"}
+
+        rel_months = re.search(r"(\d+)\s+bulan\s+(?:ini|terakhir)", lower)
+        if rel_months:
+            n = max(1, min(int(rel_months.group(1)), 36))
+            start_month = today.month - n + 1
+            year = today.year
+            while start_month <= 0:
+                start_month += 12
+                year -= 1
+            start_dt = datetime(year, start_month, 1)
+            return {"type": "range", "start_date": start_dt.strftime("%Y-%m-%d"),
+                    "end_date": today.strftime("%Y-%m-%d"), "label": f"{n} Bulan Terakhir"}
+
         if "bulan ini" in lower:
             start = today.replace(day=1).strftime("%Y-%m-%d")
             next_m = (today.replace(day=28) + timedelta(days=4)).replace(day=1)
             end = (next_m - timedelta(days=1)).strftime("%Y-%m-%d")
             return {"type": "range", "start_date": start, "end_date": end, "label": f"Bulan Ini ({today.strftime('%B %Y')})"}
+        if "minggu ini" in lower or "pekan ini" in lower:
+            start_dt = today - timedelta(days=today.weekday())
+            return {"type": "range", "start_date": start_dt.strftime("%Y-%m-%d"),
+                    "end_date": today.strftime("%Y-%m-%d"), "label": "Minggu Ini"}
+        if "tahun ini" in lower:
+            start_dt = today.replace(month=1, day=1)
+            return {"type": "range", "start_date": start_dt.strftime("%Y-%m-%d"),
+                    "end_date": today.strftime("%Y-%m-%d"), "label": f"Tahun {today.year}"}
+
+        months_ago = re.search(r"(\d+)\s+bulan\s+lalu", lower)
+        if months_ago:
+            n = max(1, min(int(months_ago.group(1)), 120))
+            month = today.month - n
+            year = today.year
+            while month <= 0:
+                month += 12
+                year -= 1
+            first_dt = datetime(year, month, 1)
+            last_dt = (first_dt.replace(day=28) + timedelta(days=4)).replace(day=1) - timedelta(days=1)
+            return {"type": "range", "start_date": first_dt.strftime("%Y-%m-%d"),
+                    "end_date": last_dt.strftime("%Y-%m-%d"), "label": f"{n} Bulan Lalu"}
+
+        years_ago = re.search(r"(\d+)\s+tahun\s+lalu", lower)
+        if years_ago:
+            n = max(1, min(int(years_ago.group(1)), 20))
+            year = today.year - n
+            return {"type": "range", "start_date": f"{year}-01-01",
+                    "end_date": f"{year}-12-31", "label": f"{n} Tahun Lalu"}
 
         months_id = {
             "januari": 1, "jan": 1, "februari": 2, "feb": 2, "maret": 3, "mar": 3,

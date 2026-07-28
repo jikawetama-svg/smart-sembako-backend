@@ -19,6 +19,7 @@ from agents.supervisor import AgentSupervisor
 from agents.reflection import ReflectionAgent
 from rag.knowledge_manager import KnowledgeManager
 from config import settings
+import runtime_state
 
 # ─────────────────────────────────────────────
 # Kamus nama bulan Bahasa Indonesia
@@ -206,9 +207,13 @@ class MasterAgent:
             "/set", "/setting", "/settings"
         )):
             return "cloud_local_command"
+        if stripped in ("setting", "settings", "export", "ekspor", "nota", "backup"):
+            return "cloud_local_command"
+        if stripped.startswith(("setting ", "settings ", "export ", "ekspor ", "nota ", "backup ")):
+            return "cloud_local_command"
         if re.search(r"\b(namamu siapa|siapa namamu|kamu siapa|nama bot|bot apa|apa yang bisa kamu bantu)\b", lower):
             return "bot_identity"
-        if re.search(r"\b(total|jumlah|berapa)\s+(pelanggan|customer|supplier|produk|barang)\b", lower):
+        if re.search(r"\b(total|jumlah|berapa)\s+(pelanggan|customer|supplier|suplier|produk|barang)\b", lower):
             return "record_count"
         # Desktop-only deteksi dini
         if any(w in lower for w in ["ocr", "foto struk", "scan struk", "gambar struk"]):
@@ -239,19 +244,22 @@ class MasterAgent:
         # Saran bisnis bukan laporan angka. Ini harus sampai ke LLM dengan konteks toko.
         if any(w in lower for w in ["meningkatkan penjualan", "naikkan penjualan", "strategi jual", "agar laku", "cara jual lebih"]):
             return "strategi_penjualan"
+        if "contoh notifikasi" in lower or "contoh laporan harian" in lower:
+            return "sample_notification"
+        # Piutang harus dideteksi sebelum laporan/stok agar frasa natural seperti
+        # "cek detail utang ibu nur" tidak dianggap pencarian produk.
+        if any(w in lower for w in ["piutang", "hutang", "utang", "tagihan", "belum bayar"]):
+            return "piutang"
         # Laporan & penjualan
         if any(w in lower for w in ["omset", "pendapatan", "jual", "penjualan", "laporan", "profit", "untung", "transaksi", "pemasukan"]):
             return "laporan_penjualan"
         if re.search(r"\b(pelanggan|customer)\b", lower):
             return "customer_query"
-        if re.search(r"\b(supplier|pemasok)\b", lower):
+        if re.search(r"\b(supplier|suplier|pemasok)\b", lower):
             return "supplier_query"
         # Stok
         if any(w in lower for w in ["stok", "ada berapa", "sisa", "barang", "produk", "harga", "cek"]):
             return "cek_stok"
-        # Piutang
-        if any(w in lower for w in ["piutang", "hutang pelanggan", "belum bayar"]):
-            return "piutang"
         return "sapaan_umum"
 
     # ─────────────────────────────────────────
@@ -378,6 +386,9 @@ class MasterAgent:
 
         if intent == "queue_status":
             return await self._handle_queue_status(user_id)
+
+        if intent == "sample_notification":
+            return await self._handle_sample_notification(text)
 
         if intent == "customer_query":
             return await self._handle_customer_query(text)
@@ -575,7 +586,7 @@ class MasterAgent:
         lower = text.lower()
         if "pelanggan" in lower or "customer" in lower:
             table, label = "customers_sync", "pelanggan"
-        elif "supplier" in lower:
+        elif "supplier" in lower or "suplier" in lower:
             table, label = "suppliers_sync", "supplier"
         else:
             table, label = "products_sync", "produk"
@@ -611,6 +622,7 @@ class MasterAgent:
             "📡 *STATUS SMART SEMBAKO CLOUD*",
             f"Merchant: `{settings.MERCHANT_ID or 'belum diset'}`",
             f"Supabase: {'aktif' if settings.SUPABASE_URL and settings.SUPABASE_KEY else 'belum lengkap'}",
+            f"Desktop runtime: {'online' if runtime_state.desktop_is_online else 'offline / belum memberi sinyal'}",
             f"Sync produk terakhir: `{_fmt_date(last_sync)}`",
             f"Antrean aktif: {len(queue or [])}"
         ]
@@ -648,8 +660,32 @@ class MasterAgent:
             lines.append(f"• `{short_id}` [{status}] {command}{suffix}")
         return "\n".join(lines)
 
+    async def _handle_sample_notification(self, text: str) -> str:
+        lower = text.lower()
+        if "laporan" in lower or "penjualan" in lower:
+            return (
+                "📊 *CONTOH NOTIFIKASI LAPORAN HARIAN*\n\n"
+                "Selamat pagi. Berikut ringkasan toko untuk periode yang dipilih:\n"
+                "• Omset: Rp 0\n"
+                "• Profit estimasi: Rp 0\n"
+                "• Jumlah nota: 0\n"
+                "• Produk terlaris: menunggu data sinkronisasi\n\n"
+                "Ini contoh format. Untuk data aktual gunakan `cek penjualan hari ini`, "
+                "`cek penjualan minggu ini`, atau `cek penjualan bulan ini`."
+            )
+        return (
+            "🔔 *CONTOH NOTIFIKASI HARIAN SMART SEMBAKO*\n\n"
+            "• Cek stok kritis dan prioritas restock.\n"
+            "• Cek piutang pelanggan terbesar/overdue.\n"
+            "• Cek produk lambat laku dan stok minus.\n"
+            "• Cek ringkasan omset harian setelah data POS tersinkron.\n\n"
+            "Ini contoh format, bukan data aktual toko."
+        )
+
     async def _handle_customer_query(self, text: str) -> str:
         query = re.sub(r"(?i)^/?(cek\s+)?(data\s+)?(pelanggan|customer)\s*", "", text).strip()
+        if re.search(r"(?i)\b(semua|seluruh|daftar|list)\b", query):
+            query = ""
         params = {
             "select": "name,phone,total_debt,last_transaction_date",
             "order": "name.asc",
@@ -668,7 +704,9 @@ class MasterAgent:
         return "\n".join(lines)
 
     async def _handle_supplier_query(self, text: str) -> str:
-        query = re.sub(r"(?i)^/?(cek\s+)?(data\s+)?(supplier|pemasok)\s*", "", text).strip()
+        query = re.sub(r"(?i)^/?(cek\s+)?(data\s+)?(supplier|suplier|pemasok)\s*", "", text).strip()
+        if re.search(r"(?i)\b(semua|seluruh|daftar|list)\b", query):
+            query = ""
         params = {
             "select": "name,phone,address",
             "order": "name.asc",
@@ -724,9 +762,16 @@ class MasterAgent:
             "inventory": "koreksi inventory",
             "local_command": "command lokal"
         }.get(command_kind, "command")
+        if runtime_state.desktop_is_online:
+            status_text = (
+                "Status: Desktop terdeteksi online. Perintah dikirim untuk diproses sekarang "
+                "(biasanya selesai dalam beberapa detik)."
+            )
+        else:
+            status_text = "Status: menunggu aplikasi Smart Sembako lokal dibuka."
         return (
             f"🕒 Perintah {action_label} sudah masuk antrean cloud `{queue_id}`.\n\n"
-            "Status: menunggu aplikasi Smart Sembako lokal dibuka.\n"
-            "Saat aplikasi lokal aktif, perintah akan diproses lewat POS lokal dan bot akan mengirim hasil/konfirmasi ke chat ini.\n\n"
-            "Cloud Bot tidak mengubah stok langsung agar data pos.db tetap aman sebagai sumber utama."
+            f"{status_text}\n"
+            "Eksekusi tulis tetap lewat Desktop runtime agar perubahan masuk ke Aronium/pos.db.\n"
+            "Jika Desktop mati, perintah tetap aman di antrean cloud sampai PC lokal aktif."
         )

@@ -21,6 +21,7 @@ from config import settings
 from telegram.webhook import verify_telegram_webhook, parse_telegram_update
 from agents.master_agent import MasterAgent
 from webhook_manager import set_webhook, delete_webhook, build_webhook_url, get_webhook_info
+import runtime_state
 
 app = FastAPI(
     title=settings.APP_NAME,
@@ -33,9 +34,6 @@ master_agent = MasterAgent()
 # ─────────────────────────────────────────────
 # State: apakah Desktop Bot sedang aktif
 # ─────────────────────────────────────────────
-_desktop_is_online: bool = False
-_desktop_last_seen: datetime | None = None
-
 def _verify_desktop_signal(secret: str, merchant_id: str) -> bool:
     expected_secret = settings.DESKTOP_SHARED_SECRET or settings.TELEGRAM_SECRET_TOKEN
     if secret != expected_secret:
@@ -52,7 +50,6 @@ from agents.scheduler_agent import SchedulerAgent
 
 @app.on_event("startup")
 async def on_startup():
-    global _desktop_is_online
     bot_token = settings.TELEGRAM_BOT_TOKEN
     
     # Start proactive scheduler if enabled
@@ -69,7 +66,7 @@ async def on_startup():
     current_url = webhook_info.get("url", "")
     expected_url = build_webhook_url()
 
-    if not _desktop_is_online and current_url != expected_url:
+    if not runtime_state.desktop_is_online and current_url != expected_url:
         success = await set_webhook(bot_token, expected_url, settings.TELEGRAM_SECRET_TOKEN)
         if success:
             print(f"[Startup] ✅ Webhook otomatis didaftarkan: {expected_url}")
@@ -88,8 +85,8 @@ async def health_check():
         "status": "healthy",
         "bot_app": settings.APP_NAME,
         "version": "7.1.0",
-        "desktop_online": _desktop_is_online,
-        "desktop_last_seen": _desktop_last_seen.isoformat() if _desktop_last_seen else None,
+        "desktop_online": runtime_state.desktop_is_online,
+        "desktop_last_seen": runtime_state.desktop_last_seen.isoformat() if runtime_state.desktop_last_seen else None,
         "supabase_configured": bool(settings.SUPABASE_URL and settings.SUPABASE_KEY),
         "tenant_isolation_ready": bool(settings.MERCHANT_ID) or not settings.TENANT_ISOLATION_REQUIRED,
         "telegram_configured": bool(settings.TELEGRAM_BOT_TOKEN)
@@ -106,9 +103,8 @@ async def desktop_online(request: Request):
     if not _verify_desktop_signal(secret, merchant_id):
         raise HTTPException(status_code=403, detail="Forbidden")
 
-    global _desktop_is_online, _desktop_last_seen
-    _desktop_is_online = True
-    _desktop_last_seen = datetime.now(timezone.utc)
+    runtime_state.desktop_is_online = True
+    runtime_state.desktop_last_seen = datetime.now(timezone.utc)
 
     bot_token = settings.TELEGRAM_BOT_TOKEN
     if bot_token:
@@ -128,8 +124,8 @@ async def desktop_offline(request: Request):
     if not _verify_desktop_signal(secret, merchant_id):
         raise HTTPException(status_code=403, detail="Forbidden")
 
-    global _desktop_is_online
-    _desktop_is_online = False
+    runtime_state.desktop_is_online = False
+    runtime_state.desktop_last_seen = datetime.now(timezone.utc)
 
     bot_token = settings.TELEGRAM_BOT_TOKEN
     if bot_token:
@@ -167,7 +163,7 @@ async def telegram_webhook(
     x_telegram_bot_api_secret_token: str = Header(None, alias="X-Telegram-Bot-Api-Secret-Token")
 ):
     # Jika Desktop online, ignore webhook (Desktop pakai polling)
-    if _desktop_is_online:
+    if runtime_state.desktop_is_online:
         return {"status": "ignored", "reason": "desktop_bot_active"}
 
     await verify_telegram_webhook(request, x_telegram_bot_api_secret_token)
