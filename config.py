@@ -20,6 +20,7 @@ class Settings:
     # Telegram Bot Configuration
     TELEGRAM_BOT_TOKEN: str = os.getenv("TELEGRAM_BOT_TOKEN", "")
     TELEGRAM_SECRET_TOKEN: str = os.getenv("TELEGRAM_SECRET_TOKEN", "smart-sembako-secret-token")
+    DESKTOP_SHARED_SECRET: str = os.getenv("DESKTOP_SHARED_SECRET", os.getenv("TELEGRAM_SECRET_TOKEN", "smart-sembako-secret-token"))
     
     # RBAC Access Control (Comma separated Telegram User IDs)
     OWNER_TELEGRAM_IDS: str = os.getenv("OWNER_TELEGRAM_IDS", "")

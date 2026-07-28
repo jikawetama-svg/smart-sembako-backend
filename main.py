@@ -36,6 +36,14 @@ master_agent = MasterAgent()
 _desktop_is_online: bool = False
 _desktop_last_seen: datetime | None = None
 
+def _verify_desktop_signal(secret: str, merchant_id: str) -> bool:
+    expected_secret = settings.DESKTOP_SHARED_SECRET or settings.TELEGRAM_SECRET_TOKEN
+    if secret != expected_secret:
+        return False
+    if settings.TENANT_ISOLATION_REQUIRED and merchant_id != settings.MERCHANT_ID:
+        return False
+    return True
+
 
 # ─────────────────────────────────────────────
 # Startup: register webhook jika Desktop offline
@@ -95,7 +103,7 @@ async def health_check():
 async def desktop_online(request: Request):
     secret = request.headers.get("X-Desktop-Secret", "")
     merchant_id = request.headers.get("X-Merchant-ID", "")
-    if secret != settings.TELEGRAM_SECRET_TOKEN or (settings.TENANT_ISOLATION_REQUIRED and merchant_id != settings.MERCHANT_ID):
+    if not _verify_desktop_signal(secret, merchant_id):
         raise HTTPException(status_code=403, detail="Forbidden")
 
     global _desktop_is_online, _desktop_last_seen
@@ -117,7 +125,7 @@ async def desktop_online(request: Request):
 async def desktop_offline(request: Request):
     secret = request.headers.get("X-Desktop-Secret", "")
     merchant_id = request.headers.get("X-Merchant-ID", "")
-    if secret != settings.TELEGRAM_SECRET_TOKEN or (settings.TENANT_ISOLATION_REQUIRED and merchant_id != settings.MERCHANT_ID):
+    if not _verify_desktop_signal(secret, merchant_id):
         raise HTTPException(status_code=403, detail="Forbidden")
 
     global _desktop_is_online
@@ -188,7 +196,7 @@ async def telegram_webhook(
 
     bot_token = settings.TELEGRAM_BOT_TOKEN or os.getenv("TELEGRAM_BOT_TOKEN", "")
     if bot_token:
-        asyncio.create_task(send_telegram_response(bot_token, chat_id, response_text))
+        await send_telegram_response(bot_token, chat_id, response_text)
 
     return {"status": "success", "chat_id": chat_id}
 

@@ -30,6 +30,7 @@ Tambahkan Secrets berikut di **Space Settings ➔ Variables and secrets**:
 | `SUPABASE_KEY` | `service_role key` atau `anon key` Supabase |
 | `TELEGRAM_BOT_TOKEN` | Token Bot Telegram dari @BotFather |
 | `TELEGRAM_SECRET_TOKEN` | Token acak rahasia untuk header `X-Telegram-Bot-Api-Secret-Token` |
+| `DESKTOP_SHARED_SECRET` | Secret sinyal Desktop `/internal/desktop-online`; samakan dengan `Telegram.SecretToken` desktop |
 | `GROQ_API_KEY` | API Key dari Groq Console (opsional) |
 | `GEMINI_API_KEY` | API Key dari Google AI Studio (opsional) |
 | `OWNER_TELEGRAM_IDS` | Telegram User ID milik Owner toko (dipisahkan koma) |

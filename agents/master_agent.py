@@ -191,13 +191,19 @@ class MasterAgent:
             return "start"
         if stripped in ("/help", "help", "bantuan"):
             return "help"
+        if stripped in ("/status", "status", "/health", "health"):
+            return "cloud_status"
+        if stripped in ("/antrean", "/queue", "/pending", "antrean", "pending"):
+            return "queue_status"
         if stripped in ("/reset", "reset memory", "hapus ingatan", "clear chat"):
             return "reset_memory"
         if stripped.startswith((
             "/confirm", "/cancel", "/batal", "/simpan", "/simpan_jual",
             "/set_harga_jual", "/jual", "/detail_harga", "/lewati_harga",
             "/inventory_family", "/set_family", "/dual_stock_watcher",
-            "/dual_stock_channel", "/dual_stock_sync"
+            "/dual_stock_channel", "/dual_stock_sync", "/bayar_piutang",
+            "/nota", "/detail_nota", "/export", "/ekspor", "/backup",
+            "/set", "/setting", "/settings"
         )):
             return "cloud_local_command"
         if re.search(r"\b(namamu siapa|siapa namamu|kamu siapa|nama bot|bot apa|apa yang bisa kamu bantu)\b", lower):
@@ -366,6 +372,12 @@ class MasterAgent:
 
         if intent == "record_count":
             return await self._handle_record_count(text)
+
+        if intent == "cloud_status":
+            return await self._handle_cloud_status()
+
+        if intent == "queue_status":
+            return await self._handle_queue_status(user_id)
 
         if intent == "customer_query":
             return await self._handle_customer_query(text)
@@ -576,6 +588,66 @@ class MasterAgent:
             "Pastikan sinkronisasi Desktop POS ke Supabase sudah berjalan."
         )
 
+    async def _handle_cloud_status(self) -> str:
+        products = await query_supabase("products_sync", {
+            "select": "id,synced_at",
+            "order": "synced_at.desc",
+            "limit": 1
+        })
+        devices = await query_supabase("merchant_devices", {
+            "select": "device_id,label,last_seen_at,revoked_at",
+            "order": "last_seen_at.desc",
+            "limit": 3
+        })
+        queue = await query_supabase("agent_command_queue", {
+            "select": "id,status,created_at",
+            "or": "(status.eq.pending,status.eq.processing)",
+            "order": "created_at.asc",
+            "limit": 20
+        })
+
+        last_sync = products[0].get("synced_at") if products else None
+        lines = [
+            "📡 *STATUS SMART SEMBAKO CLOUD*",
+            f"Merchant: `{settings.MERCHANT_ID or 'belum diset'}`",
+            f"Supabase: {'aktif' if settings.SUPABASE_URL and settings.SUPABASE_KEY else 'belum lengkap'}",
+            f"Sync produk terakhir: `{_fmt_date(last_sync)}`",
+            f"Antrean aktif: {len(queue or [])}"
+        ]
+        if devices:
+            lines.append("\n🖥 *Device terakhir terlihat:*")
+            for row in devices:
+                lines.append(
+                    f"• {row.get('device_id') or '-'} | "
+                    f"{row.get('label') or '-'} | {_fmt_date(row.get('last_seen_at'))}"
+                )
+        else:
+            lines.append("\nDesktop belum pernah bootstrap device ke cloud, atau schema Supabase belum diperbarui.")
+        return "\n".join(lines)
+
+    async def _handle_queue_status(self, user_id: int) -> str:
+        rows = await query_supabase("agent_command_queue", {
+            "select": "id,command_text,command_kind,status,error_message,result_text,created_at,updated_at",
+            "source_chat_id": f"eq.{user_id}",
+            "order": "created_at.desc",
+            "limit": 10
+        })
+        if not rows:
+            return "📭 Belum ada antrean command cloud untuk chat ini."
+
+        lines = ["📭 *ANTREAN COMMAND CLOUD*"]
+        for row in rows:
+            short_id = str(row.get("id", ""))[:8]
+            status = row.get("status") or "-"
+            command = _trim_name(row.get("command_text"), 42)
+            suffix = ""
+            if status == "failed" and row.get("error_message"):
+                suffix = f" | error: {_trim_name(row.get('error_message'), 32)}"
+            elif status == "completed":
+                suffix = " | selesai"
+            lines.append(f"• `{short_id}` [{status}] {command}{suffix}")
+        return "\n".join(lines)
+
     async def _handle_customer_query(self, text: str) -> str:
         query = re.sub(r"(?i)^/?(cek\s+)?(data\s+)?(pelanggan|customer)\s*", "", text).strip()
         params = {
@@ -647,7 +719,11 @@ class MasterAgent:
             )
 
         queue_id = str(row.get("id", ""))[:8]
-        action_label = "restock" if command_kind == "restock" else "koreksi inventory"
+        action_label = {
+            "restock": "restock",
+            "inventory": "koreksi inventory",
+            "local_command": "command lokal"
+        }.get(command_kind, "command")
         return (
             f"🕒 Perintah {action_label} sudah masuk antrean cloud `{queue_id}`.\n\n"
             "Status: menunggu aplikasi Smart Sembako lokal dibuka.\n"
