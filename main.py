@@ -24,7 +24,7 @@ from webhook_manager import set_webhook, delete_webhook, build_webhook_url, get_
 
 app = FastAPI(
     title=settings.APP_NAME,
-    version="7.0.0",
+    version="7.1.0",
     description="Smart Sembako Cloud Bot — Full Feature + AI Memory + Failover"
 )
 
@@ -79,10 +79,11 @@ async def health_check():
     return {
         "status": "healthy",
         "bot_app": settings.APP_NAME,
-        "version": "7.0.0",
+        "version": "7.1.0",
         "desktop_online": _desktop_is_online,
         "desktop_last_seen": _desktop_last_seen.isoformat() if _desktop_last_seen else None,
         "supabase_configured": bool(settings.SUPABASE_URL and settings.SUPABASE_KEY),
+        "tenant_isolation_ready": bool(settings.MERCHANT_ID) or not settings.TENANT_ISOLATION_REQUIRED,
         "telegram_configured": bool(settings.TELEGRAM_BOT_TOKEN)
     }
 
@@ -93,7 +94,8 @@ async def health_check():
 @app.post("/internal/desktop-online")
 async def desktop_online(request: Request):
     secret = request.headers.get("X-Desktop-Secret", "")
-    if secret != settings.TELEGRAM_SECRET_TOKEN:
+    merchant_id = request.headers.get("X-Merchant-ID", "")
+    if secret != settings.TELEGRAM_SECRET_TOKEN or (settings.TENANT_ISOLATION_REQUIRED and merchant_id != settings.MERCHANT_ID):
         raise HTTPException(status_code=403, detail="Forbidden")
 
     global _desktop_is_online, _desktop_last_seen
@@ -114,7 +116,8 @@ async def desktop_online(request: Request):
 @app.post("/internal/desktop-offline")
 async def desktop_offline(request: Request):
     secret = request.headers.get("X-Desktop-Secret", "")
-    if secret != settings.TELEGRAM_SECRET_TOKEN:
+    merchant_id = request.headers.get("X-Merchant-ID", "")
+    if secret != settings.TELEGRAM_SECRET_TOKEN or (settings.TENANT_ISOLATION_REQUIRED and merchant_id != settings.MERCHANT_ID):
         raise HTTPException(status_code=403, detail="Forbidden")
 
     global _desktop_is_online

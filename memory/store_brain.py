@@ -15,6 +15,18 @@ class StoreBrain:
     async def _supabase_request(self, method: str, table: str, body: Optional[dict | list] = None, params: Optional[dict] = None) -> Any:
         if not settings.SUPABASE_URL or not settings.SUPABASE_KEY:
             return None
+        if settings.TENANT_ISOLATION_REQUIRED and not settings.MERCHANT_ID:
+            print("[TenantIsolation] Store Brain blocked: MERCHANT_ID is not configured.")
+            return None
+
+        params = dict(params or {})
+        if settings.MERCHANT_ID:
+            params["merchant_id"] = f"eq.{settings.MERCHANT_ID}"
+            if method == "POST":
+                if isinstance(body, dict):
+                    body = {**body, "merchant_id": settings.MERCHANT_ID}
+                elif isinstance(body, list):
+                    body = [{**item, "merchant_id": settings.MERCHANT_ID} for item in body]
 
         url = f"{settings.SUPABASE_URL.rstrip('/')}/rest/v1/{table}"
         headers = {
@@ -70,6 +82,7 @@ class StoreBrain:
     ) -> bool:
         target_store = store_id or self.default_store_id
         payload = {
+            "merchant_id": settings.MERCHANT_ID,
             "store_id": target_store,
             "user_id": user_id or 0,
             "user_role": user_role,

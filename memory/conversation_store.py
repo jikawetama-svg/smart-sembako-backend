@@ -12,6 +12,18 @@ MEMORY_TTL_HOURS = 24  # memory auto-expire setelah 24 jam
 async def _supabase_request(method: str, table: str, body: Optional[dict | list] = None, params: Optional[dict] = None) -> Any:
     if not settings.SUPABASE_URL or not settings.SUPABASE_KEY:
         return None
+    if settings.TENANT_ISOLATION_REQUIRED and not settings.MERCHANT_ID:
+        print("[TenantIsolation] Conversation memory blocked: MERCHANT_ID is not configured.")
+        return None
+
+    params = dict(params or {})
+    if settings.MERCHANT_ID:
+        params["merchant_id"] = f"eq.{settings.MERCHANT_ID}"
+        if method == "POST":
+            if isinstance(body, dict):
+                body = {**body, "merchant_id": settings.MERCHANT_ID}
+            elif isinstance(body, list):
+                body = [{**item, "merchant_id": settings.MERCHANT_ID} for item in body]
 
     url = f"{settings.SUPABASE_URL.rstrip('/')}/rest/v1/{table}"
     headers = {

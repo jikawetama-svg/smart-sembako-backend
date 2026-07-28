@@ -9,6 +9,20 @@ async def query_supabase(table: str, params: dict) -> list:
     """Helper to query Supabase REST API directly via httpx or urllib."""
     if not settings.SUPABASE_URL or not settings.SUPABASE_KEY:
         return []
+    # Never read a shared table without an explicit tenant scope. This is a
+    # defense-in-depth layer; Supabase RLS remains the authoritative boundary.
+    if settings.TENANT_ISOLATION_REQUIRED and not settings.MERCHANT_ID:
+        print("[TenantIsolation] Query blocked: MERCHANT_ID is not configured.")
+        return []
+
+    params = dict(params or {})
+    if settings.MERCHANT_ID:
+        supplied_scope = params.get("merchant_id")
+        expected_scope = f"eq.{settings.MERCHANT_ID}"
+        if supplied_scope and supplied_scope != expected_scope:
+            print(f"[TenantIsolation] Query blocked: invalid merchant scope for {table}.")
+            return []
+        params["merchant_id"] = expected_scope
 
     url = f"{settings.SUPABASE_URL.rstrip('/')}/rest/v1/{table}"
     headers = {
@@ -36,6 +50,44 @@ async def query_supabase(table: str, params: dict) -> list:
             pass
 
     return []
+
+
+async def insert_supabase(table: str, payload: dict) -> dict:
+    """Insert one row into Supabase REST API and return the inserted row when available."""
+    if not settings.SUPABASE_URL or not settings.SUPABASE_KEY:
+        return {}
+    if settings.TENANT_ISOLATION_REQUIRED and not settings.MERCHANT_ID:
+        print("[TenantIsolation] Insert blocked: MERCHANT_ID is not configured.")
+        return {}
+
+    body = dict(payload or {})
+    if settings.MERCHANT_ID:
+        supplied_scope = body.get("merchant_id")
+        if supplied_scope and supplied_scope != settings.MERCHANT_ID:
+            print(f"[TenantIsolation] Insert blocked: invalid merchant scope for {table}.")
+            return {}
+        body["merchant_id"] = settings.MERCHANT_ID
+
+    url = f"{settings.SUPABASE_URL.rstrip('/')}/rest/v1/{table}"
+    headers = {
+        "apikey": settings.SUPABASE_KEY,
+        "Authorization": f"Bearer {settings.SUPABASE_KEY}",
+        "Content-Type": "application/json",
+        "Prefer": "return=representation"
+    }
+
+    try:
+        import httpx
+        async with httpx.AsyncClient() as client:
+            response = await client.post(url, headers=headers, json=body, timeout=10.0)
+            if response.status_code in (200, 201):
+                rows = response.json()
+                return rows[0] if isinstance(rows, list) and rows else {}
+            print(f"[SupabaseInsert] {table} HTTP {response.status_code}: {response.text[:200]}")
+    except Exception as exc:
+        print(f"[SupabaseInsert] {table} failed: {exc}")
+
+    return {}
 
 class GetStockTool(BaseTool):
     name = "get_stock"

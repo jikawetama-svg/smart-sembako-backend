@@ -14,7 +14,7 @@ short_description: FastAPI Cloud Bot Router for Smart Sembako POS
 Cloud Bot Runtime cerdas yang terhubung dengan database POS kasir via Supabase Cloud, mendukung verifikasi Webhook Telegram HMAC, Role-Based Access Control (RBAC), multi-agent LLM failover (Groq & Gemini), RAG fuzzy product search, serta laporan transaksi toko real-time.
 
 ## 🚀 Fitur Utamanya
-- **FastAPI Endpoint**: Webhook Telegram `/webhook/telegram` & status kesehatan sistem `/health`.
+- **FastAPI Endpoint**: Webhook Telegram `/webhook/telegram` & status kesehatan sistem `/` atau `/bot-health`.
 - **Keamanan (HMAC & RBAC)**: Validasi `X-Telegram-Bot-Api-Secret-Token` & pembagian role (`owner`, `kasir`, `public`).
 - **Supabase Cloud REST Integration**: Mengambil stok produk (`products_sync`) & ringkasan penjualan (`transactions_summary`) secara real-time.
 - **RAG & Fuzzy Product Search**: Matching relevansi n-gram karakter untuk pencarian stok produk cepat.

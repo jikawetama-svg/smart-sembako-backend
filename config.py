@@ -11,6 +11,10 @@ class Settings:
     # Supabase Configuration
     SUPABASE_URL: str = os.getenv("SUPABASE_URL", "")
     SUPABASE_KEY: str = os.getenv("SUPABASE_KEY", os.getenv("SUPABASE_SERVICE_ROLE_KEY", ""))
+    # Tenant boundary. Cloud Runtime fails closed when this value is missing.
+    MERCHANT_ID: str = os.getenv("MERCHANT_ID", "")
+    TENANT_ISOLATION_REQUIRED: bool = os.getenv("TENANT_ISOLATION_REQUIRED", "true").lower() in ("true", "1", "yes")
+    STORE_TIMEZONE: str = os.getenv("STORE_TIMEZONE", "Asia/Jakarta")
     
     # Telegram Bot Configuration
     TELEGRAM_BOT_TOKEN: str = os.getenv("TELEGRAM_BOT_TOKEN", "")

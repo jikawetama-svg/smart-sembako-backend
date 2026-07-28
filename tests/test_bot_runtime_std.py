@@ -28,7 +28,11 @@ class TestBotRuntime(unittest.TestCase):
         agent = MasterAgent()
         self.assertEqual(agent.classify_intent("Berapa stok minyak goreng?"), "cek_stok")
         self.assertEqual(agent.classify_intent("Berapa omset hari ini?"), "laporan_penjualan")
-        self.assertEqual(agent.classify_intent("Barang apa yang perlu restock?"), "restock")
+        self.assertEqual(agent.classify_intent("Barang apa yang perlu restock?"), "restock_rekomendasi")
+        self.assertEqual(agent.classify_intent("stok kritis"), "restock_rekomendasi")
+        self.assertEqual(agent.classify_intent("restock kapal api mix"), "cloud_input_restock")
+        self.assertEqual(agent.classify_intent("/inventory kapal api mix 130"), "cloud_input_inventory")
+        self.assertEqual(agent.classify_intent("/confirm"), "cloud_local_command")
         self.assertEqual(agent.classify_intent("Halo asisten toko!"), "sapaan_umum")
 
     def test_rbac_roles(self):

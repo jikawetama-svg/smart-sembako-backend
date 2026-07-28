@@ -13,11 +13,11 @@ def test_root_endpoint():
     response = client.get("/")
     assert response.status_code == 200
     data = response.json()
-    assert data["version"] == "5.2.0"
-    assert data["status"] == "online"
+    assert data["version"] == "7.1.0"
+    assert data["status"] == "healthy"
 
 def test_health_endpoint():
-    response = client.get("/health")
+    response = client.get("/bot-health")
     assert response.status_code == 200
     data = response.json()
     assert data["status"] == "healthy"
@@ -41,13 +41,18 @@ def test_webhook_valid_secret_token():
     assert response.status_code == 200
     data = response.json()
     assert data["status"] == "success"
-    assert "response_text" in data
+    assert data["chat_id"] == 123
 
 def test_intent_classification():
     agent = MasterAgent()
     assert agent.classify_intent("Berapa stok minyak goreng?") == "cek_stok"
     assert agent.classify_intent("Berapa omset hari ini?") == "laporan_penjualan"
-    assert agent.classify_intent("Barang apa yang perlu restock?") == "restock"
+    assert agent.classify_intent("Barang apa yang perlu restock?") == "restock_rekomendasi"
+    assert agent.classify_intent("stok kritis") == "restock_rekomendasi"
+    assert agent.classify_intent("restock kapal api mix") == "cloud_input_restock"
+    assert agent.classify_intent("/inventory kapal api mix 130") == "cloud_input_inventory"
+    assert agent.classify_intent("/confirm") == "cloud_local_command"
+    assert agent.classify_intent("Gimana caranya meningkatkan penjualan?") == "strategi_penjualan"
     assert agent.classify_intent("Halo asisten toko!") == "sapaan_umum"
 
 def test_rbac_access():

@@ -41,6 +41,20 @@ class ModelManager:
             except Exception as ex:
                 errors.append(f"{adapter.provider_name}: {str(ex)}")
 
+        error_text = "\n".join(errors).lower()
+        if any(marker in error_text for marker in ["429", "too many requests", "rate limit", "quota", "insufficient_quota"]):
+            return (
+                "⚠️ *Limit AI sedang tercapai.*\n\n"
+                "Saya tetap bisa membantu lewat fungsi tanpa AI:\n"
+                "• `/stok <nama produk>` atau `cek stok <nama>`\n"
+                "• `laporan hari ini`\n"
+                "• `stok kritis`\n"
+                "• `/inventory <produk> <stok_target>`\n"
+                "• `/restock <produk> <qty> [harga_modal]`\n\n"
+                "Untuk analisa bebas, coba lagi setelah kuota provider reset atau aktifkan provider fallback di Render.",
+                "fallback_limit"
+            )
+
         # Deterministic fallback response jika semua provider API key belum dikonfigurasi/down
         last_user_msg = messages[-1]["content"] if messages else ""
         fallback_msg = f"Halo! Saya Smart Sembako Cloud Bot. Data Anda aman. (Sistem AI siap diintegrasikan. Query Anda: '{last_user_msg}')"

@@ -9,6 +9,12 @@ services:
         sync: false
       - key: SUPABASE_KEY
         sync: false
+      - key: MERCHANT_ID
+        sync: false
+      - key: TENANT_ISOLATION_REQUIRED
+        value: "true"
+      - key: STORE_TIMEZONE
+        value: Asia/Jakarta
       - key: TELEGRAM_BOT_TOKEN
         sync: false
       - key: TELEGRAM_SECRET_TOKEN
@@ -17,5 +23,9 @@ services:
         sync: false
       - key: GEMINI_API_KEY
         sync: false
+      - key: OPENAI_API_KEY
+        sync: false
       - key: OWNER_TELEGRAM_IDS
         sync: false
+      - key: SCHEDULER_ENABLED
+        value: "true"
