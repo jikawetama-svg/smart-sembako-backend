@@ -10,9 +10,9 @@ services:
       - key: SUPABASE_KEY
         sync: false
       - key: MERCHANT_ID
-        sync: false
+        value: merchant_smart_sembako
       - key: TENANT_ISOLATION_REQUIRED
-        value: "true"
+        value: "false"
       - key: STORE_TIMEZONE
         value: Asia/Jakarta
       - key: TELEGRAM_BOT_TOKEN

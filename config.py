@@ -11,9 +11,10 @@ class Settings:
     # Supabase Configuration
     SUPABASE_URL: str = os.getenv("SUPABASE_URL", "")
     SUPABASE_KEY: str = os.getenv("SUPABASE_KEY", os.getenv("SUPABASE_SERVICE_ROLE_KEY", ""))
-    # Tenant boundary. Cloud Runtime fails closed when this value is missing.
-    MERCHANT_ID: str = os.getenv("MERCHANT_ID", "")
-    TENANT_ISOLATION_REQUIRED: bool = os.getenv("TENANT_ISOLATION_REQUIRED", "true").lower() in ("true", "1", "yes")
+    # Tenant scope. Default is intentionally simple for single-store setup;
+    # set MERCHANT_ID explicitly in Render when using multiple stores.
+    MERCHANT_ID: str = os.getenv("MERCHANT_ID", "merchant_smart_sembako")
+    TENANT_ISOLATION_REQUIRED: bool = os.getenv("TENANT_ISOLATION_REQUIRED", "false").lower() in ("true", "1", "yes")
     STORE_TIMEZONE: str = os.getenv("STORE_TIMEZONE", "Asia/Jakarta")
     
     # Telegram Bot Configuration
